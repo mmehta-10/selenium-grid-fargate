@@ -1,0 +1,1019 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Parameters": {
+        "VPC": {
+            "Type": "AWS::EC2::VPC::Id",
+            "Description": "Select a VPC that allows instances to access the Internet."
+        },
+        "PublicSubnetOne": {
+            "Type": "AWS::EC2::Subnet::Id",
+            "Description": "Select a public subnet in your selected VPC."
+        },
+        "PublicSubnetTwo": {
+            "Type": "AWS::EC2::Subnet::Id",
+            "Description": "Select one more public subnet in your selected VPC."
+        },
+        "ContainerCpu": {
+            "Type": "Number",
+            "Default": 4096,
+            "Description": "How much CPU to give the container. 1024 is 1 CPU"
+        },
+        "ContainerMemory": {
+            "Type": "Number",
+            "Default": 16384,
+            "Description": "How much memory in megabytes to give the container"
+        },
+        "Path": {
+            "Type": "String",
+            "Default": "*",
+            "Description": "A path on the public load balancer that this service should be connected to. Use * to send all load balancer traffic to this service."
+        },
+        "Priority": {
+            "Type": "Number",
+            "Default": 1,
+            "Description": "The priority for the routing rule added to the load balancer. This only applies if your have multiple services which have been assigned to different paths on the load balancer."
+        },
+        "Role": {
+            "Type": "String",
+            "Default": "",
+            "Description": "(Optional) An IAM role to give the service's containers if the code within needs to access other AWS resources like S3 buckets, DynamoDB tables, etc"
+        }
+    },
+    "Conditions": {
+        "HasCustomRole": {
+            "Fn::Not": [
+                {
+                    "Fn::Equals": [
+                        {
+                            "Ref": "Role"
+                        },
+                        ""
+                    ]
+                }
+            ]
+        }
+    },
+    "Resources": {
+        "SeleniumGrid": {
+            "Type": "AWS::ECS::Cluster",
+            "Properties": {
+                "ClusterName": "selenium-grid"
+            }
+        },
+        "SeleniumGridContainerSecurityGroup": {
+            "Type": "AWS::EC2::SecurityGroup",
+            "Properties": {
+                "GroupDescription": "Access to the Fargate containers",
+                "VpcId": {
+                    "Ref": "VPC"
+                },
+            }
+        },
+        "SeleniumIngressFromLoadBalancer": {
+            "Type": "AWS::EC2::SecurityGroupIngress",
+            "Properties": {
+                "Description": "Ingress from the public ALB",
+                "GroupId": {
+                    "Ref": "SeleniumGridContainerSecurityGroup"
+                },
+                "IpProtocol": -1,
+                "SourceSecurityGroupId": {
+                    "Ref": "SeleniumLoadBalancerSecurityGroup"
+                }
+            }
+        },
+        "SeleniumIngressFromSelf": {
+            "Type": "AWS::EC2::SecurityGroupIngress",
+            "Properties": {
+                "Description": "Ingress from other Selenium nodes in the same security group",
+                "GroupId": {
+                    "Ref": "SeleniumGridContainerSecurityGroup"
+                },
+                "IpProtocol": -1,
+                "SourceSecurityGroupId": {
+                    "Ref": "SeleniumGridContainerSecurityGroup"
+                }
+            }
+        },
+        "SeleniumLoadBalancerSecurityGroup": {
+            "Type": "AWS::EC2::SecurityGroup",
+            "Properties": {
+                "GroupDescription": "Access to the public facing Selenium load balancer",
+                "VpcId": {
+                    "Ref": "VPC"
+                }
+            }
+        },
+        "ingressseleniumALB1" : {
+            "Type" : "AWS::EC2::SecurityGroupIngress",
+            "Properties" : {
+                "GroupId" : {
+                    "Ref" : "SeleniumLoadBalancerSecurityGroup"
+                },
+                "IpProtocol" : "tcp",
+                "FromPort"   : "443",
+                "ToPort"     : "443",
+                "CidrIp"     : "10.0.0.0/8",
+                "Description" : "Ingress Ips"
+            }
+        },
+        "ingressseleniumALB2" : {
+            "Type" : "AWS::EC2::SecurityGroupIngress",
+            "Properties" : {
+                "GroupId" : {
+                    "Ref" : "SeleniumLoadBalancerSecurityGroup"
+                },
+                "IpProtocol" : "tcp",
+                "FromPort"   : "443",
+                "ToPort"     : "443",
+                "CidrIp"     : "172.27.0.0/16",
+                "Description" : "Client IPs"
+            }
+        },
+        "ingressseleniumALB1dupe" : {
+            "Type" : "AWS::EC2::SecurityGroupIngress",
+            "Properties" : {
+                "GroupId" : {
+                    "Ref" : "SeleniumLoadBalancerSecurityGroup"
+                },
+                "IpProtocol" : "tcp",
+                "FromPort"   : "4444",
+                "ToPort"     : "4444",
+                "CidrIp"     : "10.0.0.0/8",
+                "Description" : "Ingress Ips"
+            }
+        },
+        "ingressseleniumALB2dupe" : {
+            "Type" : "AWS::EC2::SecurityGroupIngress",
+            "Properties" : {
+                "GroupId" : {
+                    "Ref" : "SeleniumLoadBalancerSecurityGroup"
+                },
+                "IpProtocol" : "tcp",
+                "FromPort"   : "4444",
+                "ToPort"     : "4444",
+                "CidrIp"     : "172.27.0.0/16",
+                "Description" : "Client Ips"
+            }
+        },
+        "ingressseleniumALB3" : {
+            "Type" : "AWS::EC2::SecurityGroupIngress",
+            "Properties" : {
+                "GroupId" : {
+                    "Ref" : "SeleniumLoadBalancerSecurityGroup"
+                },
+                "IpProtocol" : "tcp",
+                "FromPort"   : "4444",
+                "ToPort"     : "4444",
+                "SourceSecurityGroupId": {
+                    "Ref": "SeleniumGridContainerSecurityGroup"
+                },
+                "Description" : "Selenium Grid containers"
+            }
+        },
+        "SeleniumLoadBalancer": {
+            "Type": "AWS::ElasticLoadBalancingV2::LoadBalancer",
+            "Properties": {
+                "Scheme": "internal",
+                "LoadBalancerAttributes": [
+                    {
+                        "Key": "idle_timeout.timeout_seconds",
+                        "Value": "300"
+                    }
+                ],
+                "Subnets": [
+                    {
+                        "Ref": "PublicSubnetOne"
+                    },
+                    {
+                        "Ref": "PublicSubnetTwo"
+                    }
+                ],
+                "SecurityGroups": [
+                    {
+                        "Ref": "SeleniumLoadBalancerSecurityGroup"
+                    }
+                ]
+            }
+        },
+        "DummyTargetGroupPublic": {
+            "Type": "AWS::ElasticLoadBalancingV2::TargetGroup",
+            "Properties": {
+                "HealthCheckIntervalSeconds": 6,
+                "HealthCheckPath": "/",
+                "HealthCheckProtocol": "HTTP",
+                "HealthCheckTimeoutSeconds": 5,
+                "HealthyThresholdCount": 2,
+                "Name": "qa-selenium-drop-1",
+                "Port": 4444,
+                "Protocol": "HTTP",
+                "UnhealthyThresholdCount": 2,
+                "VpcId": {
+                    "Ref": "VPC"
+                }
+            }
+        },
+        "PublicLoadBalancerListener": {
+            "Type": "AWS::ElasticLoadBalancingV2::Listener",
+            "DependsOn": "SeleniumLoadBalancer",
+            "Properties": {
+                "Certificates": [
+                    {
+                        "CertificateArn": "arn:aws:acm:us-east-1:<acct-id>:certificate/<cert-id>"
+                    }
+                ],
+                "DefaultActions": [
+                    {
+                        "TargetGroupArn": {
+                            "Ref": "DummyTargetGroupPublic"
+                        },
+                        "Type": "forward"
+                    }
+                ],
+                "LoadBalancerArn": {
+                    "Ref": "SeleniumLoadBalancer"
+                },
+                "Port": 443,
+                "Protocol": "HTTPS"
+            }
+        },            
+        "PublicLoadBalancerListener4444": {
+            "Type": "AWS::ElasticLoadBalancingV2::Listener",
+            "DependsOn": "SeleniumLoadBalancer",
+            "Properties": {                
+                "DefaultActions": [
+                    {
+                        "TargetGroupArn": {
+                            "Ref": "DummyTargetGroupPublic"
+                        },
+                        "Type": "forward"
+                    }
+                ],
+                "LoadBalancerArn": {
+                    "Ref": "SeleniumLoadBalancer"
+                },
+                "Port": 4444,
+                "Protocol": "HTTP"
+            }
+        },   
+        "LoadBalancerRule4444": {
+            "Type": "AWS::ElasticLoadBalancingV2::ListenerRule",
+            "DependsOn": "PublicLoadBalancerListener4444",
+            "Properties": {
+                "Actions": [
+                    {
+                        "TargetGroupArn": {
+                            "Ref": "SeleniumGridTargetGroup"
+                        },
+                        "Type": "forward"
+                    }
+                ],
+                "Conditions": [
+                    {
+                        "Field": "path-pattern",
+                        "Values": [
+                            {
+                                "Ref": "Path"
+                            }
+                        ]
+                    }
+                ],
+                "ListenerArn": {
+                    "Ref": "PublicLoadBalancerListener4444"
+                },
+                "Priority": {
+                    "Ref": "Priority"
+                }
+            }
+        },     
+        "LogGroup": {
+            "Type": "AWS::Logs::LogGroup",
+            "Properties": {
+                "LogGroupName": "selenium-grid",
+                "RetentionInDays": 30
+            }
+        },
+        "TaskDefinitionHub": {
+            "Type": "AWS::ECS::TaskDefinition",
+            "Properties": {
+                "Cpu": {
+                    "Ref": "ContainerCpu"
+                },
+                "Memory": {
+                    "Ref": "ContainerMemory"
+                },
+                "NetworkMode": "awsvpc",
+                "RequiresCompatibilities": [
+                    "FARGATE"
+                ],
+                "ExecutionRoleArn": "arn:aws:iam::<acct-id>:role/ECSTaskExecutionRole",
+                "ContainerDefinitions": [
+                    {
+                        "Name": "qa-selenium-hub",
+                        "Cpu": {
+                            "Ref": "ContainerCpu"
+                        },
+                        "Memory": {
+                            "Ref": "ContainerMemory"
+                        },
+                        "Image": "<acct-id>.dkr.ecr.us-east-1.amazonaws.com/selenium_builds:hub",
+                        "Environment": [
+                            {
+                                "Name": "SE_OPTS",
+                                "Value": "-debug"
+                            },
+                            {
+                                "Name": "GRID_TIMEOUT",
+                                "Value": "18000"
+                            }
+                        ],
+                        "LogConfiguration": {
+                            "LogDriver": "awslogs",
+                            "Options": {
+                                "awslogs-group": {
+                                    "Ref": "LogGroup"
+                                },
+                                "awslogs-region": {
+                                    "Ref": "AWS::Region"
+                                },
+                                "awslogs-stream-prefix": "qa-selenium"
+                            }
+                        },
+                        "PortMappings": [
+                            {
+                                "ContainerPort": 4444
+                            }
+                        ]
+                    }
+                ]
+            }
+        },
+        "TaskDefinitionNodeChrome": {
+            "Type": "AWS::ECS::TaskDefinition",
+            "Properties": {
+                "Cpu": {
+                    "Ref": "ContainerCpu"
+                },
+                "Memory": {
+                    "Ref": "ContainerMemory"
+                },
+                "NetworkMode": "awsvpc",
+                "RequiresCompatibilities": [
+                    "FARGATE"
+                ],
+                "ExecutionRoleArn": "arn:aws:iam::<acct-id>:role/ECSTaskExecutionRole",
+                "ContainerDefinitions": [
+                    {
+                        "Name": "qa-selenium-node-chrome",
+                        "Cpu": {
+                            "Ref": "ContainerCpu"
+                        },
+                        "Memory": {
+                            "Ref": "ContainerMemory"
+                        },
+                        "Image": "<acct-id>.dkr.ecr.us-east-1.amazonaws.com/selenium_builds:chrome",
+                        "Environment": [
+                            {
+                                "Name": "HUB_PORT_4444_TCP_ADDR",
+                                "Value": {
+                                    "Fn::GetAtt": [
+                                        "SeleniumLoadBalancer",
+                                        "DNSName"
+                                    ]
+                                }
+                            },
+                            {
+                                "Name": "HUB_PORT_4444_TCP_PORT",
+                                "Value": "4444"
+                            },
+                            {
+                                "Name": "NODE_MAX_INSTANCES",
+                                "Value": "10"
+                            },
+                            {
+                                "Name": "NODE_MAX_SESSION",
+                                "Value": "10"
+                            },
+                            {
+                                "Name": "shm_size",
+                                "Value": "512m"
+                            },
+                            {
+                                "Name": "SE_OPTS",
+                                "Value": "-debug"
+                            }
+                        ],
+                        "LogConfiguration": {
+                            "LogDriver": "awslogs",
+                            "Options": {
+                                "awslogs-group": {
+                                    "Ref": "LogGroup"
+                                },
+                                "awslogs-region": {
+                                    "Ref": "AWS::Region"
+                                },
+                                "awslogs-stream-prefix": "qa-selenium"
+                            }
+                        }
+                    }
+                ]
+            }
+        },
+        "TaskDefinitionNodeFirefox": {
+            "Type": "AWS::ECS::TaskDefinition",
+            "Properties": {
+                "Cpu": {
+                    "Ref": "ContainerCpu"
+                },
+                "Memory": {
+                    "Ref": "ContainerMemory"
+                },
+                "NetworkMode": "awsvpc",
+                "RequiresCompatibilities": [
+                    "FARGATE"
+                ],
+                "ExecutionRoleArn": "arn:aws:iam::<acct-id>:role/ECSTaskExecutionRole",
+                "ContainerDefinitions": [
+                    {
+                        "Name": "qa-selenium-node-firefox",
+                        "Cpu": {
+                            "Ref": "ContainerCpu"
+                        },
+                        "Memory": {
+                            "Ref": "ContainerMemory"
+                        },
+                        "Image": "<acct-id>.dkr.ecr.us-east-1.amazonaws.com/selenium_builds:firefox",
+                        "Environment": [
+                            {
+                                "Name": "HUB_PORT_4444_TCP_ADDR",
+                                "Value": {
+                                    "Fn::GetAtt": [
+                                        "SeleniumLoadBalancer",
+                                        "DNSName"
+                                    ]
+                                }
+                            },
+                            {
+                                "Name": "HUB_PORT_4444_TCP_PORT",
+                                "Value": "4444"
+                            },
+                            {
+                                "Name": "NODE_MAX_INSTANCES",
+                                "Value": "10"
+                            },
+                            {
+                                "Name": "NODE_MAX_SESSION",
+                                "Value": "10"
+                            }
+                        ],
+                        "LogConfiguration": {
+                            "LogDriver": "awslogs",
+                            "Options": {
+                                "awslogs-group": {
+                                    "Ref": "LogGroup"
+                                },
+                                "awslogs-region": {
+                                    "Ref": "AWS::Region"
+                                },
+                                "awslogs-stream-prefix": "qa-selenium"
+                            }
+                        }
+                    }
+                ]
+            }
+        },
+        "ServiceHub": {
+            "Type": "AWS::ECS::Service",
+            "DependsOn": "LoadBalancerRule4444",
+            "Properties": {
+                "ServiceName": "qa-selenium-hub",
+                "Cluster": {
+                    "Ref": "SeleniumGrid"
+                },
+                "LaunchType": "FARGATE",
+                "DeploymentConfiguration": {
+                    "MaximumPercent": 200,
+                    "MinimumHealthyPercent": 75
+                },
+                "DesiredCount": 0,
+                "NetworkConfiguration": {
+                    "AwsvpcConfiguration": {
+                        "AssignPublicIp": "ENABLED",
+                        "SecurityGroups": [
+                            {
+                                "Ref": "SeleniumGridContainerSecurityGroup"
+                            }
+                        ],
+                        "Subnets": [
+                            {
+                                "Ref": "PublicSubnetOne"
+                            },
+                            {
+                                "Ref": "PublicSubnetTwo"
+                            }
+                        ]
+                    }
+                },
+                "TaskDefinition": {
+                    "Ref": "TaskDefinitionHub"
+                },
+                "Role": {
+                    "Fn::If": [
+                        "HasCustomRole",
+                        {
+                            "Ref": "Role"
+                        },
+                        {
+                            "Ref": "AWS::NoValue"
+                        }
+                    ]
+                },
+                "LoadBalancers": [
+                    {
+                        "ContainerName": "qa-selenium-hub",
+                        "ContainerPort": 4444,
+                        "TargetGroupArn": {
+                            "Ref": "SeleniumGridTargetGroup"
+                        }
+                    }
+                ]
+            }
+        },
+        "ServiceNodeChrome": {
+            "Type": "AWS::ECS::Service",
+            "DependsOn": "ServiceHub",
+            "Properties": {
+                "ServiceName": "qa-selenium-node-chrome",
+                "Cluster": {
+                    "Ref": "SeleniumGrid"
+                },
+                "LaunchType": "FARGATE",
+                "DeploymentConfiguration": {
+                    "MaximumPercent": 200,
+                    "MinimumHealthyPercent": 75
+                },
+                "DesiredCount": 0,
+                "NetworkConfiguration": {
+                    "AwsvpcConfiguration": {
+                        "AssignPublicIp": "ENABLED",
+                        "SecurityGroups": [
+                            {
+                                "Ref": "SeleniumGridContainerSecurityGroup"
+                            }
+                        ],
+                        "Subnets": [
+                            {
+                                "Ref": "PublicSubnetOne"
+                            },
+                            {
+                                "Ref": "PublicSubnetTwo"
+                            }
+                        ]
+                    }
+                },
+                "TaskDefinition": {
+                    "Ref": "TaskDefinitionNodeChrome"
+                }
+            }
+        },
+        "ServiceNodeFirefox": {
+            "Type": "AWS::ECS::Service",
+            "DependsOn": "ServiceHub",
+            "Properties": {
+                "ServiceName": "qa-selenium-node-firefox",
+                "Cluster": {
+                    "Ref": "SeleniumGrid"
+                },
+                "LaunchType": "FARGATE",
+                "DeploymentConfiguration": {
+                    "MaximumPercent": 200,
+                    "MinimumHealthyPercent": 75
+                },
+                "DesiredCount": 0,
+                "NetworkConfiguration": {
+                    "AwsvpcConfiguration": {
+                        "AssignPublicIp": "ENABLED",
+                        "SecurityGroups": [
+                            {
+                                "Ref": "SeleniumGridContainerSecurityGroup"
+                            }
+                        ],
+                        "Subnets": [
+                            {
+                                "Ref": "PublicSubnetOne"
+                            },
+                            {
+                                "Ref": "PublicSubnetTwo"
+                            }
+                        ]
+                    }
+                },
+                "TaskDefinition": {
+                    "Ref": "TaskDefinitionNodeFirefox"
+                }
+            }
+        },
+        "SeleniumGridTargetGroup": {
+            "Type": "AWS::ElasticLoadBalancingV2::TargetGroup",
+            "Properties": {
+                "HealthCheckIntervalSeconds": 6,
+                "HealthCheckPath": "/",
+                "HealthCheckProtocol": "HTTP",
+                "HealthCheckTimeoutSeconds": 5,
+                "HealthyThresholdCount": 2,
+                "TargetType": "ip",
+                "Name": "selenium-grid",
+                "Port": 4444,
+                "Protocol": "HTTP",
+                "UnhealthyThresholdCount": 2,
+                "VpcId": {
+                    "Ref": "VPC"
+                }
+            }
+        },
+        "LoadBalancerRule": {
+            "Type": "AWS::ElasticLoadBalancingV2::ListenerRule",
+            "DependsOn": "PublicLoadBalancerListener",
+            "Properties": {
+                "Actions": [
+                    {
+                        "TargetGroupArn": {
+                            "Ref": "SeleniumGridTargetGroup"
+                        },
+                        "Type": "forward"
+                    }
+                ],
+                "Conditions": [
+                    {
+                        "Field": "path-pattern",
+                        "Values": [
+                            {
+                                "Ref": "Path"
+                            }
+                        ]
+                    }
+                ],
+                "ListenerArn": {
+                    "Ref": "PublicLoadBalancerListener"
+                },
+                "Priority": {
+                    "Ref": "Priority"
+                }
+            }
+        },
+        "FirefoxScalableTarget": {
+            "Type": "AWS::ApplicationAutoScaling::ScalableTarget",
+            "Properties": {
+                "ResourceId": {
+                    "Fn::Join": [
+                        "",
+                        [
+                            "service/",
+                            {
+                                "Ref": "SeleniumGrid"
+                            },
+                            "/",
+                            {
+                                "Fn::GetAtt": [
+                                    "ServiceNodeFirefox",
+                                    "Name"
+                                ]
+                            }
+                        ]
+                    ]
+                },
+                "ServiceNamespace": "ecs",
+                "ScalableDimension": "ecs:service:DesiredCount",
+                "RoleARN": "arn:aws:iam::<acct-id>:role/ApplicationAutoScalingECSService",
+                "MaxCapacity": "30",
+                "MinCapacity": "0"
+            }
+        },
+        "FirefoxServiceScaleOutPolicy": {
+            "Type": "AWS::ApplicationAutoScaling::ScalingPolicy",
+            "Properties": {
+                "PolicyName": "autoscale_firefox_service",
+                "PolicyType": "StepScaling",
+                "ScalingTargetId": {
+                    "Ref": "FirefoxScalableTarget"
+                },
+                "StepScalingPolicyConfiguration": {
+                    "AdjustmentType": "ChangeInCapacity",
+                    "Cooldown": 180,
+                    "MetricAggregationType": "Average",
+                    "StepAdjustments": [
+                        {
+                            "ScalingAdjustment": 2,
+                            "MetricIntervalLowerBound": 0
+                        }
+                    ]
+                }
+            }
+        },
+        "FirefoxServiceScaleInPolicy": {
+            "Type": "AWS::ApplicationAutoScaling::ScalingPolicy",
+            "Properties": {
+                "PolicyName": "autoscale_cooldown_firefox_service",
+                "PolicyType": "StepScaling",
+                "ScalingTargetId": {
+                    "Ref": "FirefoxScalableTarget"
+                },
+                "StepScalingPolicyConfiguration": {
+                    "AdjustmentType": "ChangeInCapacity",
+                    "Cooldown": 300,
+                    "MetricAggregationType": "Average",
+                    "StepAdjustments": [
+                        {
+                            "ScalingAdjustment": -1,
+                            "MetricIntervalLowerBound": 0
+                        }
+                    ]
+                }
+            }
+        },
+        "ChromeScalableTarget": {
+            "Type": "AWS::ApplicationAutoScaling::ScalableTarget",
+            "Properties": {
+                "ResourceId": {
+                    "Fn::Join": [
+                        "",
+                        [
+                            "service/",
+                            {
+                                "Ref": "SeleniumGrid"
+                            },
+                            "/",
+                            {
+                                "Fn::GetAtt": [
+                                    "ServiceNodeChrome",
+                                    "Name"
+                                ]
+                            }
+                        ]
+                    ]
+                },
+                "ServiceNamespace": "ecs",
+                "ScalableDimension": "ecs:service:DesiredCount",
+                "RoleARN": "arn:aws:iam::<acct-id>:role/ApplicationAutoScalingECSService",
+                "MaxCapacity": "10",
+                "MinCapacity": "0"
+            }
+        },
+		"ChromeServiceScaleOutPolicy": {
+            "Type": "AWS::ApplicationAutoScaling::ScalingPolicy",
+            "Properties": {
+                "PolicyName": "autoscale_chrome_service",
+                "PolicyType": "StepScaling",
+                "ScalingTargetId": {
+                    "Ref": "ChromeScalableTarget"
+                },
+                "StepScalingPolicyConfiguration": {
+                    "AdjustmentType": "ChangeInCapacity",
+                    "Cooldown": 180,
+                    "MetricAggregationType": "Average",
+                    "StepAdjustments": [
+                        {
+                            "ScalingAdjustment": 2,
+                            "MetricIntervalLowerBound": 0
+                        }
+                    ]
+                }
+            }
+        },
+        "ChromeServiceScaleInPolicy": {
+            "Type": "AWS::ApplicationAutoScaling::ScalingPolicy",
+            "Properties": {
+                "PolicyName": "autoscale_cooldown_chrome_service",
+                "PolicyType": "StepScaling",
+                "ScalingTargetId": {
+                    "Ref": "ChromeScalableTarget"
+                },
+                "StepScalingPolicyConfiguration": {
+                    "AdjustmentType": "ChangeInCapacity",
+                    "Cooldown": 300,
+                    "MetricAggregationType": "Average",
+                    "StepAdjustments": [
+                        {
+                            "ScalingAdjustment": -1,
+                            "MetricIntervalLowerBound": 0
+                        }
+                    ]
+                }
+            }
+        },		
+        "NodeServiceCPUScaleOutAlarm": {
+            "Type": "AWS::CloudWatch::Alarm",
+            "Properties": {
+                "AlarmName": "GGN_SELENIUM_FARGATE_NODE_CPU_80PCT_1MIN_DEV",
+                "EvaluationPeriods": "1",
+                "Statistic": "Maximum",
+                "TreatMissingData": "missing",
+                "Threshold": "80",
+                "AlarmDescription": "Alarm to add capacity if CPU is high",
+                "Period": 60,
+                "AlarmActions": [
+                    {
+                        "Ref": "FirefoxServiceScaleOutPolicy"
+                    },
+                    {
+                        "Ref": "ChromeServiceScaleOutPolicy"
+                    }
+                ],
+                "Namespace": "AWS/ECS",
+                "Dimensions": [
+                    {
+                        "Name": "ClusterName",
+                        "Value": {
+                            "Ref": "SeleniumGrid"
+                        }
+                    },
+                    {
+                        "Name": "ServiceName",
+                        "Value": {
+                            "Fn::GetAtt": [
+                                "ServiceNodeFirefox",
+                                "Name"
+                            ]
+                        }
+                    }
+                ],
+                "ComparisonOperator": "GreaterThanOrEqualToThreshold",
+                "MetricName": "CPUUtilization"
+            }
+        },
+        "NodeServiceCPUScaleInAlarm": {
+            "Type": "AWS::CloudWatch::Alarm",
+            "Properties": {
+                "AlarmName": "GGN_SELENIUM_FARGATE_NODE_CPU_30PCT_5MIN_DEV",
+                "EvaluationPeriods": "5",
+                "Statistic": "Average",
+                "TreatMissingData": "missing",
+                "Threshold": "30",
+                "AlarmDescription": "Alarm to reduce capacity if CPU is low",
+                "Period": 300,
+                "AlarmActions": [
+                    {
+                        "Ref": "FirefoxServiceScaleInPolicy"
+                    },
+                    {
+                        "Ref": "ChromeServiceScaleInPolicy"
+                    }
+                ],
+                "Namespace": "AWS/ECS",
+                "Dimensions": [
+                    {
+                        "Name": "ClusterName",
+                        "Value": {
+                            "Ref": "SeleniumGrid"
+                        }
+                    },
+                    {
+                        "Name": "ServiceName",
+                        "Value": {
+                            "Fn::GetAtt": [
+                                "ServiceNodeFirefox",
+                                "Name"
+                            ]
+                        }
+                    }
+                ],
+                "ComparisonOperator": "LessThanOrEqualToThreshold",
+                "MetricName": "CPUUtilization"
+            }
+        },
+        "NodeServiceMemoryScaleOutAlarm": {
+            "Type": "AWS::CloudWatch::Alarm",
+            "Properties": {
+                "AlarmName": "GGN_SELENIUM_FARGATE_NODE_MEMORY_80PCT_1MIN_DEV",
+                "EvaluationPeriods": "1",
+                "Statistic": "Maximum",
+                "TreatMissingData": "missing",
+                "Threshold": "80",
+                "AlarmDescription": "Alarm to add capacity if MEMORY is high",
+                "Period": 60,
+                "AlarmActions": [
+                    {
+                        "Ref": "FirefoxServiceScaleOutPolicy"
+                    },
+                    {
+                        "Ref": "ChromeServiceScaleOutPolicy"
+                    }
+                ],
+                "Namespace": "AWS/ECS",
+                "Dimensions": [
+                    {
+                        "Name": "ClusterName",
+                        "Value": {
+                            "Ref": "SeleniumGrid"
+                        }
+                    },
+                    {
+                        "Name": "ServiceName",
+                        "Value": {
+                            "Fn::GetAtt": [
+                                "ServiceNodeFirefox",
+                                "Name"
+                            ]
+                        }
+                    }
+                ],
+                "ComparisonOperator": "GreaterThanOrEqualToThreshold",
+                "MetricName": "MemoryUtilization"
+            }
+        },
+        "NodeServiceMemoryScaleInAlarm": {
+            "Type": "AWS::CloudWatch::Alarm",
+            "Properties": {
+                "AlarmName": "GGN_SELENIUM_FARGATE_NODE_MEMORY_30PCT_5MIN_DEV",
+                "EvaluationPeriods": "5",
+                "Statistic": "Average",
+                "TreatMissingData": "missing",
+                "Threshold": "30",
+                "AlarmDescription": "Alarm to reduce capacity if MEMORY is low",
+                "Period": 300,
+                "AlarmActions": [
+                    {
+                        "Ref": "FirefoxServiceScaleInPolicy"
+                    },
+                    {
+                        "Ref": "ChromeServiceScaleInPolicy"
+                    }
+                ],
+                "Namespace": "AWS/ECS",
+                "Dimensions": [
+                    {
+                        "Name": "ClusterName",
+                        "Value": {
+                            "Ref": "SeleniumGrid"
+                        }
+                    },
+                    {
+                        "Name": "ServiceName",
+                        "Value": {
+                            "Fn::GetAtt": [
+                                "ServiceNodeFirefox",
+                                "Name"
+                            ]
+                        }
+                    }
+                ],
+                "ComparisonOperator": "LessThanOrEqualToThreshold",
+                "MetricName": "MemoryUtilization"
+            }
+        },
+        "RecordSet": {
+            "Type": "AWS::Route53::RecordSetGroup",
+            "DependsOn": "SeleniumLoadBalancer",
+            "Properties": {
+                "HostedZoneId": "Z19RG3KT1IOKKO",
+                "RecordSets": [
+                    {
+                        "Name": "ggn-selenium.midevcld.spglobal.com",
+                        "Type": "CNAME",
+                        "TTL": "300",
+                        "ResourceRecords": [
+                            {
+                                "Fn::GetAtt": [
+                                    "SeleniumLoadBalancer",
+                                    "DNSName"
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            }
+        }
+    },
+    "Outputs": {
+        "ExternalUrl": {
+            "Description": "The url of the external load balancer",
+            "Value": {
+                "Fn::Join": [
+                    "",
+                    [
+                        "https://",
+                        {
+                            "Fn::GetAtt": [
+                                "SeleniumLoadBalancer",
+                                "DNSName"
+                            ]
+                        }
+                    ]
+                ]
+            },
+            "Export": {
+                "Name": {
+                    "Fn::Join": [
+                        ":",
+                        [
+                            {
+                                "Ref": "AWS::StackName"
+                            },
+                            "ExternalUrl"
+                        ]
+                    ]
+                }
+            }
+        }
+    }
+}
