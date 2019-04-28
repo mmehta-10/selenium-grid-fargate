@@ -6,7 +6,7 @@ A scalable yet disposable Selenium Grid for large-scale testing. Built using AWS
 1. Log into your AWS account
 2. Go to Services > CloudFormation
 3. Click CreateStack
-4. Upload the CloudFormation template provided here (either json or yaml). Click Next.
+4. Upload the CloudFormation template provided here (either [json](cft.json) or [yaml](cft.yml)). Click Next.
 5. Provide a name for your stack. Modify **ContainerCpu, ContainerMemory** and **SeleniumImageVersion** as desired. If you're using this for the first time, it is recommended to work with defaults. Click Next twice, and check the box to 'I acknowledge that AWS CloudFormation might create IAM resources.' Click Create.
 
 Stack should be created in a few minutes. You should be able to access the Selenium Grid on **ExternalUrl:4444** in the Outputs section of the created stack.
