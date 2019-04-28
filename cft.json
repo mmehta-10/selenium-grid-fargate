@@ -1,27 +1,20 @@
 {
     "AWSTemplateFormatVersion": "2010-09-09",
     "Parameters": {
-        "VPC": {
-            "Type": "AWS::EC2::VPC::Id",
-            "Description": "Select a VPC that allows instances to access the Internet."
-        },
-        "PublicSubnetOne": {
-            "Type": "AWS::EC2::Subnet::Id",
-            "Description": "Select a public subnet in your selected VPC."
-        },
-        "PublicSubnetTwo": {
-            "Type": "AWS::EC2::Subnet::Id",
-            "Description": "Select one more public subnet in your selected VPC."
-        },
         "ContainerCpu": {
             "Type": "Number",
-            "Default": 4096,
+            "Default": 256,
             "Description": "How much CPU to give the container. 1024 is 1 CPU"
         },
         "ContainerMemory": {
             "Type": "Number",
-            "Default": 16384,
+            "Default": 512,
             "Description": "How much memory in megabytes to give the container"
+        },
+        "SeleniumImageVersion": {
+            "Type": "String",
+            "Default": "3.141.59",
+            "Description": "Version of the Selenium docker images - hub, node-chrome and node-firefox - to be used."
         },
         "Path": {
             "Type": "String",
@@ -53,7 +46,303 @@
             ]
         }
     },
+    "Mappings": {
+        "SubnetConfig": {
+            "VPC": {
+                "CIDR": "10.0.0.0/16"
+            },
+            "PublicOne": {
+                "CIDR": "10.0.0.0/24"
+            },
+            "PublicTwo": {
+                "CIDR": "10.0.1.0/24"
+            },
+            "PrivateOne": {
+                "CIDR": "10.0.2.0/24"
+            },
+            "PrivateTwo": {
+                "CIDR": "10.0.3.0/24"
+            }
+        }
+    },
     "Resources": {
+        "VPC": {
+            "Type": "AWS::EC2::VPC",
+            "Properties": {
+                "EnableDnsSupport": true,
+                "EnableDnsHostnames": true,
+                "CidrBlock": {
+                    "Fn::FindInMap": [
+                        "SubnetConfig",
+                        "VPC",
+                        "CIDR"
+                    ]
+                }
+            }
+        },
+        "PublicSubnetOne": {
+            "Type": "AWS::EC2::Subnet",
+            "Properties": {
+                "AvailabilityZone": {
+                    "Fn::Select": [
+                        0,
+                        {
+                            "Fn::GetAZs": {
+                                "Ref": "AWS::Region"
+                            }
+                        }
+                    ]
+                },
+                "VpcId": {
+                    "Ref": "VPC"
+                },
+                "CidrBlock": {
+                    "Fn::FindInMap": [
+                        "SubnetConfig",
+                        "PublicOne",
+                        "CIDR"
+                    ]
+                },
+                "MapPublicIpOnLaunch": true
+            }
+        },
+        "PublicSubnetTwo": {
+            "Type": "AWS::EC2::Subnet",
+            "Properties": {
+                "AvailabilityZone": {
+                    "Fn::Select": [
+                        1,
+                        {
+                            "Fn::GetAZs": {
+                                "Ref": "AWS::Region"
+                            }
+                        }
+                    ]
+                },
+                "VpcId": {
+                    "Ref": "VPC"
+                },
+                "CidrBlock": {
+                    "Fn::FindInMap": [
+                        "SubnetConfig",
+                        "PublicTwo",
+                        "CIDR"
+                    ]
+                },
+                "MapPublicIpOnLaunch": true
+            }
+        },
+        "PrivateSubnetOne": {
+            "Type": "AWS::EC2::Subnet",
+            "Properties": {
+                "AvailabilityZone": {
+                    "Fn::Select": [
+                        0,
+                        {
+                            "Fn::GetAZs": {
+                                "Ref": "AWS::Region"
+                            }
+                        }
+                    ]
+                },
+                "VpcId": {
+                    "Ref": "VPC"
+                },
+                "CidrBlock": {
+                    "Fn::FindInMap": [
+                        "SubnetConfig",
+                        "PrivateOne",
+                        "CIDR"
+                    ]
+                }
+            }
+        },
+        "PrivateSubnetTwo": {
+            "Type": "AWS::EC2::Subnet",
+            "Properties": {
+                "AvailabilityZone": {
+                    "Fn::Select": [
+                        1,
+                        {
+                            "Fn::GetAZs": {
+                                "Ref": "AWS::Region"
+                            }
+                        }
+                    ]
+                },
+                "VpcId": {
+                    "Ref": "VPC"
+                },
+                "CidrBlock": {
+                    "Fn::FindInMap": [
+                        "SubnetConfig",
+                        "PrivateTwo",
+                        "CIDR"
+                    ]
+                }
+            }
+        },
+        "InternetGateway": {
+            "Type": "AWS::EC2::InternetGateway"
+        },
+        "GatewayAttachement": {
+            "Type": "AWS::EC2::VPCGatewayAttachment",
+            "Properties": {
+                "VpcId": {
+                    "Ref": "VPC"
+                },
+                "InternetGatewayId": {
+                    "Ref": "InternetGateway"
+                }
+            }
+        },
+        "PublicRouteTable": {
+            "Type": "AWS::EC2::RouteTable",
+            "Properties": {
+                "VpcId": {
+                    "Ref": "VPC"
+                }
+            }
+        },
+        "PublicRoute": {
+            "Type": "AWS::EC2::Route",
+            "DependsOn": "GatewayAttachement",
+            "Properties": {
+                "RouteTableId": {
+                    "Ref": "PublicRouteTable"
+                },
+                "DestinationCidrBlock": "0.0.0.0/0",
+                "GatewayId": {
+                    "Ref": "InternetGateway"
+                }
+            }
+        },
+        "PublicSubnetOneRouteTableAssociation": {
+            "Type": "AWS::EC2::SubnetRouteTableAssociation",
+            "Properties": {
+                "SubnetId": {
+                    "Ref": "PublicSubnetOne"
+                },
+                "RouteTableId": {
+                    "Ref": "PublicRouteTable"
+                }
+            }
+        },
+        "PublicSubnetTwoRouteTableAssociation": {
+            "Type": "AWS::EC2::SubnetRouteTableAssociation",
+            "Properties": {
+                "SubnetId": {
+                    "Ref": "PublicSubnetTwo"
+                },
+                "RouteTableId": {
+                    "Ref": "PublicRouteTable"
+                }
+            }
+        },
+        "NatGatewayOneAttachment": {
+            "Type": "AWS::EC2::EIP",
+            "DependsOn": "GatewayAttachement",
+            "Properties": {
+                "Domain": "vpc"
+            }
+        },
+        "NatGatewayTwoAttachment": {
+            "Type": "AWS::EC2::EIP",
+            "DependsOn": "GatewayAttachement",
+            "Properties": {
+                "Domain": "vpc"
+            }
+        },
+        "NatGatewayOne": {
+            "Type": "AWS::EC2::NatGateway",
+            "Properties": {
+                "AllocationId": {
+                    "Fn::GetAtt": [
+                        "NatGatewayOneAttachment",
+                        "AllocationId"
+                    ]
+                },
+                "SubnetId": {
+                    "Ref": "PublicSubnetOne"
+                }
+            }
+        },
+        "NatGatewayTwo": {
+            "Type": "AWS::EC2::NatGateway",
+            "Properties": {
+                "AllocationId": {
+                    "Fn::GetAtt": [
+                        "NatGatewayTwoAttachment",
+                        "AllocationId"
+                    ]
+                },
+                "SubnetId": {
+                    "Ref": "PublicSubnetTwo"
+                }
+            }
+        },
+        "PrivateRouteTableOne": {
+            "Type": "AWS::EC2::RouteTable",
+            "Properties": {
+                "VpcId": {
+                    "Ref": "VPC"
+                }
+            }
+        },
+        "PrivateRouteOne": {
+            "Type": "AWS::EC2::Route",
+            "Properties": {
+                "RouteTableId": {
+                    "Ref": "PrivateRouteTableOne"
+                },
+                "DestinationCidrBlock": "0.0.0.0/0",
+                "NatGatewayId": {
+                    "Ref": "NatGatewayOne"
+                }
+            }
+        },
+        "PrivateRouteTableOneAssociation": {
+            "Type": "AWS::EC2::SubnetRouteTableAssociation",
+            "Properties": {
+                "RouteTableId": {
+                    "Ref": "PrivateRouteTableOne"
+                },
+                "SubnetId": {
+                    "Ref": "PrivateSubnetOne"
+                }
+            }
+        },
+        "PrivateRouteTableTwo": {
+            "Type": "AWS::EC2::RouteTable",
+            "Properties": {
+                "VpcId": {
+                    "Ref": "VPC"
+                }
+            }
+        },
+        "PrivateRouteTwo": {
+            "Type": "AWS::EC2::Route",
+            "Properties": {
+                "RouteTableId": {
+                    "Ref": "PrivateRouteTableTwo"
+                },
+                "DestinationCidrBlock": "0.0.0.0/0",
+                "NatGatewayId": {
+                    "Ref": "NatGatewayTwo"
+                }
+            }
+        },
+        "PrivateRouteTableTwoAssociation": {
+            "Type": "AWS::EC2::SubnetRouteTableAssociation",
+            "Properties": {
+                "RouteTableId": {
+                    "Ref": "PrivateRouteTableTwo"
+                },
+                "SubnetId": {
+                    "Ref": "PrivateSubnetTwo"
+                }
+            }
+        },
         "SeleniumGrid": {
             "Type": "AWS::ECS::Cluster",
             "Properties": {
@@ -66,10 +355,10 @@
                 "GroupDescription": "Access to the Fargate containers",
                 "VpcId": {
                     "Ref": "VPC"
-                },
+                }
             }
         },
-        "SeleniumIngressFromLoadBalancer": {
+        "EcsSecurityGroupIngressFromPublicALB": {
             "Type": "AWS::EC2::SecurityGroupIngress",
             "Properties": {
                 "Description": "Ingress from the public ALB",
@@ -78,14 +367,14 @@
                 },
                 "IpProtocol": -1,
                 "SourceSecurityGroupId": {
-                    "Ref": "SeleniumLoadBalancerSecurityGroup"
+                    "Ref": "SeleniumLoadBalancerSG"
                 }
             }
         },
-        "SeleniumIngressFromSelf": {
+        "EcsSecurityGroupIngressFromSelf": {
             "Type": "AWS::EC2::SecurityGroupIngress",
             "Properties": {
-                "Description": "Ingress from other Selenium nodes in the same security group",
+                "Description": "Ingress from other containers in the same security group",
                 "GroupId": {
                     "Ref": "SeleniumGridContainerSecurityGroup"
                 },
@@ -95,90 +384,29 @@
                 }
             }
         },
-        "SeleniumLoadBalancerSecurityGroup": {
+        "SeleniumLoadBalancerSG": {
             "Type": "AWS::EC2::SecurityGroup",
             "Properties": {
-                "GroupDescription": "Access to the public facing Selenium load balancer",
+                "GroupDescription": "Access to the public facing load balancer",
                 "VpcId": {
                     "Ref": "VPC"
-                }
-            }
-        },
-        "ingressseleniumALB1" : {
-            "Type" : "AWS::EC2::SecurityGroupIngress",
-            "Properties" : {
-                "GroupId" : {
-                    "Ref" : "SeleniumLoadBalancerSecurityGroup"
                 },
-                "IpProtocol" : "tcp",
-                "FromPort"   : "443",
-                "ToPort"     : "443",
-                "CidrIp"     : "10.0.0.0/8",
-                "Description" : "Ingress Ips"
-            }
-        },
-        "ingressseleniumALB2" : {
-            "Type" : "AWS::EC2::SecurityGroupIngress",
-            "Properties" : {
-                "GroupId" : {
-                    "Ref" : "SeleniumLoadBalancerSecurityGroup"
-                },
-                "IpProtocol" : "tcp",
-                "FromPort"   : "443",
-                "ToPort"     : "443",
-                "CidrIp"     : "172.27.0.0/16",
-                "Description" : "Client IPs"
-            }
-        },
-        "ingressseleniumALB1dupe" : {
-            "Type" : "AWS::EC2::SecurityGroupIngress",
-            "Properties" : {
-                "GroupId" : {
-                    "Ref" : "SeleniumLoadBalancerSecurityGroup"
-                },
-                "IpProtocol" : "tcp",
-                "FromPort"   : "4444",
-                "ToPort"     : "4444",
-                "CidrIp"     : "10.0.0.0/8",
-                "Description" : "Ingress Ips"
-            }
-        },
-        "ingressseleniumALB2dupe" : {
-            "Type" : "AWS::EC2::SecurityGroupIngress",
-            "Properties" : {
-                "GroupId" : {
-                    "Ref" : "SeleniumLoadBalancerSecurityGroup"
-                },
-                "IpProtocol" : "tcp",
-                "FromPort"   : "4444",
-                "ToPort"     : "4444",
-                "CidrIp"     : "172.27.0.0/16",
-                "Description" : "Client Ips"
-            }
-        },
-        "ingressseleniumALB3" : {
-            "Type" : "AWS::EC2::SecurityGroupIngress",
-            "Properties" : {
-                "GroupId" : {
-                    "Ref" : "SeleniumLoadBalancerSecurityGroup"
-                },
-                "IpProtocol" : "tcp",
-                "FromPort"   : "4444",
-                "ToPort"     : "4444",
-                "SourceSecurityGroupId": {
-                    "Ref": "SeleniumGridContainerSecurityGroup"
-                },
-                "Description" : "Selenium Grid containers"
+                "SecurityGroupIngress": [
+                    {
+                        "CidrIp": "0.0.0.0/0",
+                        "IpProtocol": -1
+                    }
+                ]
             }
         },
         "SeleniumLoadBalancer": {
             "Type": "AWS::ElasticLoadBalancingV2::LoadBalancer",
             "Properties": {
-                "Scheme": "internal",
+                "Scheme": "internet-facing",
                 "LoadBalancerAttributes": [
                     {
                         "Key": "idle_timeout.timeout_seconds",
-                        "Value": "300"
+                        "Value": "100"
                     }
                 ],
                 "Subnets": [
@@ -191,7 +419,7 @@
                 ],
                 "SecurityGroups": [
                     {
-                        "Ref": "SeleniumLoadBalancerSecurityGroup"
+                        "Ref": "SeleniumLoadBalancerSG"
                     }
                 ]
             }
@@ -204,7 +432,17 @@
                 "HealthCheckProtocol": "HTTP",
                 "HealthCheckTimeoutSeconds": 5,
                 "HealthyThresholdCount": 2,
-                "Name": "qa-selenium-drop-1",
+                "Name": {
+                    "Fn::Join": [
+                        "-",
+                        [
+                            {
+                                "Ref": "AWS::StackName"
+                            },
+                            "drop-1"
+                        ]
+                    ]
+                },
                 "Port": 4444,
                 "Protocol": "HTTP",
                 "UnhealthyThresholdCount": 2,
@@ -213,34 +451,10 @@
                 }
             }
         },
-        "PublicLoadBalancerListener": {
+        "SeleniumLoadBalancerListener": {
             "Type": "AWS::ElasticLoadBalancingV2::Listener",
             "DependsOn": "SeleniumLoadBalancer",
             "Properties": {
-                "Certificates": [
-                    {
-                        "CertificateArn": "arn:aws:acm:us-east-1:<acct-id>:certificate/<cert-id>"
-                    }
-                ],
-                "DefaultActions": [
-                    {
-                        "TargetGroupArn": {
-                            "Ref": "DummyTargetGroupPublic"
-                        },
-                        "Type": "forward"
-                    }
-                ],
-                "LoadBalancerArn": {
-                    "Ref": "SeleniumLoadBalancer"
-                },
-                "Port": 443,
-                "Protocol": "HTTPS"
-            }
-        },            
-        "PublicLoadBalancerListener4444": {
-            "Type": "AWS::ElasticLoadBalancingV2::Listener",
-            "DependsOn": "SeleniumLoadBalancer",
-            "Properties": {                
                 "DefaultActions": [
                     {
                         "TargetGroupArn": {
@@ -255,37 +469,100 @@
                 "Port": 4444,
                 "Protocol": "HTTP"
             }
-        },   
-        "LoadBalancerRule4444": {
-            "Type": "AWS::ElasticLoadBalancingV2::ListenerRule",
-            "DependsOn": "PublicLoadBalancerListener4444",
+        },
+        "ECSRole": {
+            "Type": "AWS::IAM::Role",
             "Properties": {
-                "Actions": [
-                    {
-                        "TargetGroupArn": {
-                            "Ref": "SeleniumGridTargetGroup"
-                        },
-                        "Type": "forward"
-                    }
-                ],
-                "Conditions": [
-                    {
-                        "Field": "path-pattern",
-                        "Values": [
-                            {
-                                "Ref": "Path"
-                            }
-                        ]
-                    }
-                ],
-                "ListenerArn": {
-                    "Ref": "PublicLoadBalancerListener4444"
+                "AssumeRolePolicyDocument": {
+                    "Statement": [
+                        {
+                            "Effect": "Allow",
+                            "Principal": {
+                                "Service": [
+                                    "ecs.amazonaws.com"
+                                ]
+                            },
+                            "Action": [
+                                "sts:AssumeRole"
+                            ]
+                        }
+                    ]
                 },
-                "Priority": {
-                    "Ref": "Priority"
-                }
+                "Path": "/",
+                "Policies": [
+                    {
+                        "PolicyName": "ecs-service",
+                        "PolicyDocument": {
+                            "Statement": [
+                                {
+                                    "Effect": "Allow",
+                                    "Action": [
+                                        "ec2:AttachNetworkInterface",
+                                        "ec2:CreateNetworkInterface",
+                                        "ec2:CreateNetworkInterfacePermission",
+                                        "ec2:DeleteNetworkInterface",
+                                        "ec2:DeleteNetworkInterfacePermission",
+                                        "ec2:Describe*",
+                                        "ec2:DetachNetworkInterface",
+                                        "elasticloadbalancing:DeregisterInstancesFromLoadBalancer",
+                                        "elasticloadbalancing:DeregisterTargets",
+                                        "elasticloadbalancing:Describe*",
+                                        "elasticloadbalancing:RegisterInstancesWithLoadBalancer",
+                                        "elasticloadbalancing:RegisterTargets"
+                                    ],
+                                    "Resource": "*"
+                                }
+                            ]
+                        }
+                    }
+                ]
             }
-        },     
+        },
+        "ECSTaskExecutionRole": {
+            "Type": "AWS::IAM::Role",
+            "Properties": {
+                "AssumeRolePolicyDocument": {
+                    "Statement": [
+                        {
+                            "Effect": "Allow",
+                            "Principal": {
+                                "Service": [
+                                    "ecs-tasks.amazonaws.com"
+                                ]
+                            },
+                            "Action": [
+                                "sts:AssumeRole"
+                            ]
+                        }
+                    ]
+                },
+                "Path": "/",
+                "Policies": [
+                    {
+                        "PolicyName": "AmazonECSTaskExecutionRolePolicy",
+                        "PolicyDocument": {
+                            "Statement": [
+                                {
+                                    "Effect": "Allow",
+                                    "Action": [
+                                        "ecr:GetAuthorizationToken",
+                                        "ecr:BatchCheckLayerAvailability",
+                                        "ecr:GetDownloadUrlForLayer",
+                                        "ecr:BatchGetImage",
+                                        "logs:CreateLogStream",
+                                        "logs:CreateLogGroup",
+                                        "logs:DescribeLogGroups",
+                                        "logs:DescribeLogStreams",
+                                        "logs:PutLogEvents"
+                                    ],
+                                    "Resource": "*"
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
+        },
         "LogGroup": {
             "Type": "AWS::Logs::LogGroup",
             "Properties": {
@@ -306,17 +583,32 @@
                 "RequiresCompatibilities": [
                     "FARGATE"
                 ],
-                "ExecutionRoleArn": "arn:aws:iam::<acct-id>:role/ECSTaskExecutionRole",
+                "ExecutionRoleArn": {
+                    "Fn::GetAtt": [
+                        "ECSTaskExecutionRole",
+                        "Arn"
+                    ]
+                },
                 "ContainerDefinitions": [
                     {
-                        "Name": "qa-selenium-hub",
+                        "Name": "selenium-hub",
                         "Cpu": {
                             "Ref": "ContainerCpu"
                         },
                         "Memory": {
                             "Ref": "ContainerMemory"
                         },
-                        "Image": "<acct-id>.dkr.ecr.us-east-1.amazonaws.com/selenium_builds:hub",
+                        "Image": {
+                            "Fn::Join": [
+                                ":",
+                                [
+                                    "selenium/hub",
+                                    {
+                                        "Ref": "SeleniumImageVersion"
+                                    }
+                                ]
+                            ]
+                        },
                         "Environment": [
                             {
                                 "Name": "SE_OPTS",
@@ -324,7 +616,11 @@
                             },
                             {
                                 "Name": "GRID_TIMEOUT",
-                                "Value": "18000"
+                                "Value": "180"
+                            },
+                            {
+                                "Name": "GRID_BROWSER_TIMEOUT",
+                                "Value": "200000"
                             }
                         ],
                         "LogConfiguration": {
@@ -336,7 +632,7 @@
                                 "awslogs-region": {
                                     "Ref": "AWS::Region"
                                 },
-                                "awslogs-stream-prefix": "qa-selenium"
+                                "awslogs-stream-prefix": "selenium-logs"
                             }
                         },
                         "PortMappings": [
@@ -361,17 +657,32 @@
                 "RequiresCompatibilities": [
                     "FARGATE"
                 ],
-                "ExecutionRoleArn": "arn:aws:iam::<acct-id>:role/ECSTaskExecutionRole",
+                "ExecutionRoleArn": {
+                    "Fn::GetAtt": [
+                        "ECSTaskExecutionRole",
+                        "Arn"
+                    ]
+                },
                 "ContainerDefinitions": [
                     {
-                        "Name": "qa-selenium-node-chrome",
+                        "Name": "selenium-node-chrome",
                         "Cpu": {
                             "Ref": "ContainerCpu"
                         },
                         "Memory": {
                             "Ref": "ContainerMemory"
                         },
-                        "Image": "<acct-id>.dkr.ecr.us-east-1.amazonaws.com/selenium_builds:chrome",
+                        "Image": {
+                            "Fn::Join": [
+                                ":",
+                                [
+                                    "selenium/node-chrome",
+                                    {
+                                        "Ref": "SeleniumImageVersion"
+                                    }
+                                ]
+                            ]
+                        },
                         "Environment": [
                             {
                                 "Name": "HUB_PORT_4444_TCP_ADDR",
@@ -388,15 +699,15 @@
                             },
                             {
                                 "Name": "NODE_MAX_INSTANCES",
-                                "Value": "10"
+                                "Value": "5"
                             },
                             {
                                 "Name": "NODE_MAX_SESSION",
-                                "Value": "10"
+                                "Value": "5"
                             },
                             {
                                 "Name": "shm_size",
-                                "Value": "512m"
+                                "Value": 512
                             },
                             {
                                 "Name": "SE_OPTS",
@@ -412,9 +723,16 @@
                                 "awslogs-region": {
                                     "Ref": "AWS::Region"
                                 },
-                                "awslogs-stream-prefix": "qa-selenium"
+                                "awslogs-stream-prefix": "selenium-logs"
                             }
-                        }
+                        },
+                        "EntryPoint": [
+                            "sh",
+                            "-c"
+                        ],
+                        "Command": [
+                            "PRIVATE=$(curl -s http://169.254.170.2/v2/metadata | jq -r '.Containers[1].Networks[0].IPv4Addresses[0]') ; export REMOTE_HOST=\"http://$PRIVATE:5555\" ; /opt/bin/entry_point.sh"
+                        ]
                     }
                 ]
             }
@@ -432,17 +750,32 @@
                 "RequiresCompatibilities": [
                     "FARGATE"
                 ],
-                "ExecutionRoleArn": "arn:aws:iam::<acct-id>:role/ECSTaskExecutionRole",
+                "ExecutionRoleArn": {
+                    "Fn::GetAtt": [
+                        "ECSTaskExecutionRole",
+                        "Arn"
+                    ]
+                },
                 "ContainerDefinitions": [
                     {
-                        "Name": "qa-selenium-node-firefox",
+                        "Name": "selenium-node-firefox",
                         "Cpu": {
                             "Ref": "ContainerCpu"
                         },
                         "Memory": {
                             "Ref": "ContainerMemory"
                         },
-                        "Image": "<acct-id>.dkr.ecr.us-east-1.amazonaws.com/selenium_builds:firefox",
+                        "Image": {
+                            "Fn::Join": [
+                                ":",
+                                [
+                                    "selenium/node-firefox",
+                                    {
+                                        "Ref": "SeleniumImageVersion"
+                                    }
+                                ]
+                            ]
+                        },
                         "Environment": [
                             {
                                 "Name": "HUB_PORT_4444_TCP_ADDR",
@@ -459,11 +792,11 @@
                             },
                             {
                                 "Name": "NODE_MAX_INSTANCES",
-                                "Value": "10"
+                                "Value": "5"
                             },
                             {
                                 "Name": "NODE_MAX_SESSION",
-                                "Value": "10"
+                                "Value": "5"
                             }
                         ],
                         "LogConfiguration": {
@@ -475,18 +808,25 @@
                                 "awslogs-region": {
                                     "Ref": "AWS::Region"
                                 },
-                                "awslogs-stream-prefix": "qa-selenium"
+                                "awslogs-stream-prefix": "selenium-logs"
                             }
-                        }
+                        },
+                        "EntryPoint": [
+                            "sh",
+                            "-c"
+                        ],
+                        "Command": [
+                            "PRIVATE=$(curl -s http://169.254.170.2/v2/metadata | jq -r '.Containers[1].Networks[0].IPv4Addresses[0]') ; export REMOTE_HOST=\"http://$PRIVATE:5555\" ; /opt/bin/entry_point.sh"
+                        ]
                     }
                 ]
             }
         },
         "ServiceHub": {
             "Type": "AWS::ECS::Service",
-            "DependsOn": "LoadBalancerRule4444",
+            "DependsOn": "LoadBalancerRule",
             "Properties": {
-                "ServiceName": "qa-selenium-hub",
+                "ServiceName": "selenium-hub-service",
                 "Cluster": {
                     "Ref": "SeleniumGrid"
                 },
@@ -495,7 +835,7 @@
                     "MaximumPercent": 200,
                     "MinimumHealthyPercent": 75
                 },
-                "DesiredCount": 0,
+                "DesiredCount": 1,
                 "NetworkConfiguration": {
                     "AwsvpcConfiguration": {
                         "AssignPublicIp": "ENABLED",
@@ -506,10 +846,10 @@
                         ],
                         "Subnets": [
                             {
-                                "Ref": "PublicSubnetOne"
+                                "Ref": "PrivateSubnetOne"
                             },
                             {
-                                "Ref": "PublicSubnetTwo"
+                                "Ref": "PrivateSubnetTwo"
                             }
                         ]
                     }
@@ -530,7 +870,7 @@
                 },
                 "LoadBalancers": [
                     {
-                        "ContainerName": "qa-selenium-hub",
+                        "ContainerName": "selenium-hub",
                         "ContainerPort": 4444,
                         "TargetGroupArn": {
                             "Ref": "SeleniumGridTargetGroup"
@@ -543,7 +883,7 @@
             "Type": "AWS::ECS::Service",
             "DependsOn": "ServiceHub",
             "Properties": {
-                "ServiceName": "qa-selenium-node-chrome",
+                "ServiceName": "node-chrome",
                 "Cluster": {
                     "Ref": "SeleniumGrid"
                 },
@@ -552,7 +892,7 @@
                     "MaximumPercent": 200,
                     "MinimumHealthyPercent": 75
                 },
-                "DesiredCount": 0,
+                "DesiredCount": 2,
                 "NetworkConfiguration": {
                     "AwsvpcConfiguration": {
                         "AssignPublicIp": "ENABLED",
@@ -563,10 +903,10 @@
                         ],
                         "Subnets": [
                             {
-                                "Ref": "PublicSubnetOne"
+                                "Ref": "PrivateSubnetOne"
                             },
                             {
-                                "Ref": "PublicSubnetTwo"
+                                "Ref": "PrivateSubnetTwo"
                             }
                         ]
                     }
@@ -580,7 +920,7 @@
             "Type": "AWS::ECS::Service",
             "DependsOn": "ServiceHub",
             "Properties": {
-                "ServiceName": "qa-selenium-node-firefox",
+                "ServiceName": "node-firefox",
                 "Cluster": {
                     "Ref": "SeleniumGrid"
                 },
@@ -589,7 +929,7 @@
                     "MaximumPercent": 200,
                     "MinimumHealthyPercent": 75
                 },
-                "DesiredCount": 0,
+                "DesiredCount": 2,
                 "NetworkConfiguration": {
                     "AwsvpcConfiguration": {
                         "AssignPublicIp": "ENABLED",
@@ -600,10 +940,10 @@
                         ],
                         "Subnets": [
                             {
-                                "Ref": "PublicSubnetOne"
+                                "Ref": "PrivateSubnetOne"
                             },
                             {
-                                "Ref": "PublicSubnetTwo"
+                                "Ref": "PrivateSubnetTwo"
                             }
                         ]
                     }
@@ -633,7 +973,7 @@
         },
         "LoadBalancerRule": {
             "Type": "AWS::ElasticLoadBalancingV2::ListenerRule",
-            "DependsOn": "PublicLoadBalancerListener",
+            "DependsOn": "SeleniumLoadBalancerListener",
             "Properties": {
                 "Actions": [
                     {
@@ -654,43 +994,74 @@
                     }
                 ],
                 "ListenerArn": {
-                    "Ref": "PublicLoadBalancerListener"
+                    "Ref": "SeleniumLoadBalancerListener"
                 },
                 "Priority": {
                     "Ref": "Priority"
                 }
             }
         },
-        "FirefoxScalableTarget": {
-            "Type": "AWS::ApplicationAutoScaling::ScalableTarget",
+        "AutoscalingRole": {
+            "Type": "AWS::IAM::Role",
             "Properties": {
-                "ResourceId": {
-                    "Fn::Join": [
-                        "",
-                        [
-                            "service/",
-                            {
-                                "Ref": "SeleniumGrid"
-                            },
-                            "/",
-                            {
-                                "Fn::GetAtt": [
-                                    "ServiceNodeFirefox",
-                                    "Name"
+                "AssumeRolePolicyDocument": {
+                    "Statement": [
+                        {
+                            "Effect": "Allow",
+                            "Principal": {
+                                "Service": [
+                                    "application-autoscaling.amazonaws.com"
                                 ]
-                            }
-                        ]
+                            },
+                            "Action": [
+                                "sts:AssumeRole"
+                            ]
+                        }
                     ]
                 },
+                "Path": "/",
+                "Policies": [
+                    {
+                        "PolicyName": "service-autoscaling",
+                        "PolicyDocument": {
+                            "Statement": [
+                                {
+                                    "Effect": "Allow",
+                                    "Action": [
+                                        "application-autoscaling:*",
+                                        "cloudwatch:DescribeAlarms",
+                                        "cloudwatch:PutMetricAlarm",
+                                        "ecs:DescribeServices",
+                                        "ecs:UpdateService"
+                                    ],
+                                    "Resource": "*"
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
+        },
+        "FirefoxScalableTarget": {
+            "Type": "AWS::ApplicationAutoScaling::ScalableTarget",
+            "DependsOn": "ServiceNodeFirefox",
+            "Properties": {
+                "ResourceId": "service/selenium-grid/selenium-node-firefox-service",
                 "ServiceNamespace": "ecs",
                 "ScalableDimension": "ecs:service:DesiredCount",
-                "RoleARN": "arn:aws:iam::<acct-id>:role/ApplicationAutoScalingECSService",
-                "MaxCapacity": "30",
+                "RoleARN": {
+                    "Fn::GetAtt": [
+                        "AutoscalingRole",
+                        "Arn"
+                    ]
+                },
+                "MaxCapacity": "4",
                 "MinCapacity": "0"
             }
         },
         "FirefoxServiceScaleOutPolicy": {
             "Type": "AWS::ApplicationAutoScaling::ScalingPolicy",
+            "DependsOn": "FirefoxScalableTarget",
             "Properties": {
                 "PolicyName": "autoscale_firefox_service",
                 "PolicyType": "StepScaling",
@@ -710,57 +1081,26 @@
                 }
             }
         },
-        "FirefoxServiceScaleInPolicy": {
-            "Type": "AWS::ApplicationAutoScaling::ScalingPolicy",
-            "Properties": {
-                "PolicyName": "autoscale_cooldown_firefox_service",
-                "PolicyType": "StepScaling",
-                "ScalingTargetId": {
-                    "Ref": "FirefoxScalableTarget"
-                },
-                "StepScalingPolicyConfiguration": {
-                    "AdjustmentType": "ChangeInCapacity",
-                    "Cooldown": 300,
-                    "MetricAggregationType": "Average",
-                    "StepAdjustments": [
-                        {
-                            "ScalingAdjustment": -1,
-                            "MetricIntervalLowerBound": 0
-                        }
-                    ]
-                }
-            }
-        },
         "ChromeScalableTarget": {
             "Type": "AWS::ApplicationAutoScaling::ScalableTarget",
+            "DependsOn": "ServiceNodeChrome",
             "Properties": {
-                "ResourceId": {
-                    "Fn::Join": [
-                        "",
-                        [
-                            "service/",
-                            {
-                                "Ref": "SeleniumGrid"
-                            },
-                            "/",
-                            {
-                                "Fn::GetAtt": [
-                                    "ServiceNodeChrome",
-                                    "Name"
-                                ]
-                            }
-                        ]
-                    ]
-                },
+                "ResourceId": "service/selenium-grid/selenium-node-chrome-service",
                 "ServiceNamespace": "ecs",
                 "ScalableDimension": "ecs:service:DesiredCount",
-                "RoleARN": "arn:aws:iam::<acct-id>:role/ApplicationAutoScalingECSService",
-                "MaxCapacity": "10",
+                "RoleARN": {
+                    "Fn::GetAtt": [
+                        "AutoscalingRole",
+                        "Arn"
+                    ]
+                },
+                "MaxCapacity": "36",
                 "MinCapacity": "0"
             }
         },
-		"ChromeServiceScaleOutPolicy": {
+        "ChromeServiceScaleOutPolicy": {
             "Type": "AWS::ApplicationAutoScaling::ScalingPolicy",
+            "DependsOn": "ChromeScalableTarget",
             "Properties": {
                 "PolicyName": "autoscale_chrome_service",
                 "PolicyType": "StepScaling",
@@ -773,38 +1113,17 @@
                     "MetricAggregationType": "Average",
                     "StepAdjustments": [
                         {
-                            "ScalingAdjustment": 2,
+                            "ScalingAdjustment": 1,
                             "MetricIntervalLowerBound": 0
                         }
                     ]
                 }
             }
         },
-        "ChromeServiceScaleInPolicy": {
-            "Type": "AWS::ApplicationAutoScaling::ScalingPolicy",
-            "Properties": {
-                "PolicyName": "autoscale_cooldown_chrome_service",
-                "PolicyType": "StepScaling",
-                "ScalingTargetId": {
-                    "Ref": "ChromeScalableTarget"
-                },
-                "StepScalingPolicyConfiguration": {
-                    "AdjustmentType": "ChangeInCapacity",
-                    "Cooldown": 300,
-                    "MetricAggregationType": "Average",
-                    "StepAdjustments": [
-                        {
-                            "ScalingAdjustment": -1,
-                            "MetricIntervalLowerBound": 0
-                        }
-                    ]
-                }
-            }
-        },		
         "NodeServiceCPUScaleOutAlarm": {
             "Type": "AWS::CloudWatch::Alarm",
             "Properties": {
-                "AlarmName": "GGN_SELENIUM_FARGATE_NODE_CPU_80PCT_1MIN_DEV",
+                "AlarmName": "SELENIUM_FARGATE_NODE_CPU_80PCT_1MIN_DEV",
                 "EvaluationPeriods": "1",
                 "Statistic": "Maximum",
                 "TreatMissingData": "missing",
@@ -841,50 +1160,10 @@
                 "MetricName": "CPUUtilization"
             }
         },
-        "NodeServiceCPUScaleInAlarm": {
-            "Type": "AWS::CloudWatch::Alarm",
-            "Properties": {
-                "AlarmName": "GGN_SELENIUM_FARGATE_NODE_CPU_30PCT_5MIN_DEV",
-                "EvaluationPeriods": "5",
-                "Statistic": "Average",
-                "TreatMissingData": "missing",
-                "Threshold": "30",
-                "AlarmDescription": "Alarm to reduce capacity if CPU is low",
-                "Period": 300,
-                "AlarmActions": [
-                    {
-                        "Ref": "FirefoxServiceScaleInPolicy"
-                    },
-                    {
-                        "Ref": "ChromeServiceScaleInPolicy"
-                    }
-                ],
-                "Namespace": "AWS/ECS",
-                "Dimensions": [
-                    {
-                        "Name": "ClusterName",
-                        "Value": {
-                            "Ref": "SeleniumGrid"
-                        }
-                    },
-                    {
-                        "Name": "ServiceName",
-                        "Value": {
-                            "Fn::GetAtt": [
-                                "ServiceNodeFirefox",
-                                "Name"
-                            ]
-                        }
-                    }
-                ],
-                "ComparisonOperator": "LessThanOrEqualToThreshold",
-                "MetricName": "CPUUtilization"
-            }
-        },
         "NodeServiceMemoryScaleOutAlarm": {
             "Type": "AWS::CloudWatch::Alarm",
             "Properties": {
-                "AlarmName": "GGN_SELENIUM_FARGATE_NODE_MEMORY_80PCT_1MIN_DEV",
+                "AlarmName": "SELENIUM_FARGATE_NODE_MEMORY_80PCT_1MIN_DEV",
                 "EvaluationPeriods": "1",
                 "Statistic": "Maximum",
                 "TreatMissingData": "missing",
@@ -920,68 +1199,6 @@
                 "ComparisonOperator": "GreaterThanOrEqualToThreshold",
                 "MetricName": "MemoryUtilization"
             }
-        },
-        "NodeServiceMemoryScaleInAlarm": {
-            "Type": "AWS::CloudWatch::Alarm",
-            "Properties": {
-                "AlarmName": "GGN_SELENIUM_FARGATE_NODE_MEMORY_30PCT_5MIN_DEV",
-                "EvaluationPeriods": "5",
-                "Statistic": "Average",
-                "TreatMissingData": "missing",
-                "Threshold": "30",
-                "AlarmDescription": "Alarm to reduce capacity if MEMORY is low",
-                "Period": 300,
-                "AlarmActions": [
-                    {
-                        "Ref": "FirefoxServiceScaleInPolicy"
-                    },
-                    {
-                        "Ref": "ChromeServiceScaleInPolicy"
-                    }
-                ],
-                "Namespace": "AWS/ECS",
-                "Dimensions": [
-                    {
-                        "Name": "ClusterName",
-                        "Value": {
-                            "Ref": "SeleniumGrid"
-                        }
-                    },
-                    {
-                        "Name": "ServiceName",
-                        "Value": {
-                            "Fn::GetAtt": [
-                                "ServiceNodeFirefox",
-                                "Name"
-                            ]
-                        }
-                    }
-                ],
-                "ComparisonOperator": "LessThanOrEqualToThreshold",
-                "MetricName": "MemoryUtilization"
-            }
-        },
-        "RecordSet": {
-            "Type": "AWS::Route53::RecordSetGroup",
-            "DependsOn": "SeleniumLoadBalancer",
-            "Properties": {
-                "HostedZoneId": "Z19RG3KT1IOKKO",
-                "RecordSets": [
-                    {
-                        "Name": "ggn-selenium.midevcld.spglobal.com",
-                        "Type": "CNAME",
-                        "TTL": "300",
-                        "ResourceRecords": [
-                            {
-                                "Fn::GetAtt": [
-                                    "SeleniumLoadBalancer",
-                                    "DNSName"
-                                ]
-                            }
-                        ]
-                    }
-                ]
-            }
         }
     },
     "Outputs": {
@@ -991,7 +1208,7 @@
                 "Fn::Join": [
                     "",
                     [
-                        "https://",
+                        "http://",
                         {
                             "Fn::GetAtt": [
                                 "SeleniumLoadBalancer",
@@ -1016,4 +1233,4 @@
             }
         }
     }
-}
+}	
