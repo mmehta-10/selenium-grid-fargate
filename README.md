@@ -18,6 +18,7 @@ Stack should be created in a few minutes. You should be able to access the Selen
 ### Implementation based on sample templates issued by AWS - 
 
 - https://github.com/awslabs/aws-cloudformation-templates/tree/master/aws/services/ECS
+- https://github.com/nathanpeck/aws-cloudformation-fargate
 - Blog post: https://aws.amazon.com/blogs/compute/task-networking-in-aws-fargate/
 
 **DO NOT FORGET** to delete your stack when not in use, else you would end up incurring charges for idle resources.
