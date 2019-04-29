@@ -645,7 +645,13 @@ Resources:
     Type: 'AWS::ApplicationAutoScaling::ScalableTarget'
     DependsOn: ServiceNodeFirefox
     Properties:
-      ResourceId: service/selenium-grid/selenium-node-firefox-service
+      ResourceId: !Join 
+        - /
+        - - service
+          - !Ref SeleniumGrid
+          - !GetAtt 
+            - ServiceNodeFirefox
+            - Name
       ServiceNamespace: ecs
       ScalableDimension: 'ecs:service:DesiredCount'
       RoleARN: !GetAtt 
@@ -671,7 +677,13 @@ Resources:
     Type: 'AWS::ApplicationAutoScaling::ScalableTarget'
     DependsOn: ServiceNodeChrome
     Properties:
-      ResourceId: service/selenium-grid/selenium-node-chrome-service
+      ResourceId: !Join 
+        - /
+        - - service
+          - !Ref SeleniumGrid
+          - !GetAtt 
+            - ServiceNodeChrome
+            - Name
       ServiceNamespace: ecs
       ScalableDimension: 'ecs:service:DesiredCount'
       RoleARN: !GetAtt 
