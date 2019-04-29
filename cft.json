@@ -1046,7 +1046,23 @@
             "Type": "AWS::ApplicationAutoScaling::ScalableTarget",
             "DependsOn": "ServiceNodeFirefox",
             "Properties": {
-                "ResourceId": "service/selenium-grid/selenium-node-firefox-service",
+                "ResourceId": {
+                    "Fn::Join": [
+                        "/",
+                        [
+                            "service",
+                            {
+                                "Ref": "SeleniumGrid"
+                            },
+                            {
+                                "Fn::GetAtt": [
+                                    "ServiceNodeFirefox",
+                                    "Name"
+                                ]
+                            }
+                        ]
+                    ]
+                },
                 "ServiceNamespace": "ecs",
                 "ScalableDimension": "ecs:service:DesiredCount",
                 "RoleARN": {
@@ -1085,7 +1101,23 @@
             "Type": "AWS::ApplicationAutoScaling::ScalableTarget",
             "DependsOn": "ServiceNodeChrome",
             "Properties": {
-                "ResourceId": "service/selenium-grid/selenium-node-chrome-service",
+                "ResourceId": {
+                    "Fn::Join": [
+                        "/",
+                        [
+                            "service",
+                            {
+                                "Ref": "SeleniumGrid"
+                            },
+                            {
+                                "Fn::GetAtt": [
+                                    "ServiceNodeChrome",
+                                    "Name"
+                                ]
+                            }
+                        ]
+                    ]
+                },
                 "ServiceNamespace": "ecs",
                 "ScalableDimension": "ecs:service:DesiredCount",
                 "RoleARN": {
@@ -1233,4 +1265,4 @@
             }
         }
     }
-}	
+}
