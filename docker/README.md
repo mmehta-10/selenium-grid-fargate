@@ -5,11 +5,11 @@ This script exposes the private IP of container for Selenium Node as `REMOTE_HOS
 
 Run this command to create docker image using Dockerfile -
 
-` docker build --build-arg image_name=<node-chrome-debug|node-chrome> --build-arg image_version=<selenium-version> -t selenium-node-fargate .`
+` docker build --build-arg image_name=<node-chrome-debug|node-chrome> --build-arg image_version=<selenium-version> -t selenium-node-fargate:<selenium-version> .`
 
 For example: 
 
-` docker build --build-arg image_name=node-chrome-debug --build-arg image_version=3.141.59-zinc -t selenium-node-fargate .`
+` docker build --build-arg image_name=node-chrome-debug --build-arg image_version=3.141.59-zinc -t selenium-node-fargate:3.141.59-zinc .`
 
 ### Source
 https://github.com/SeleniumHQ/docker-selenium#selenium-hub-and-node-configuration-options
