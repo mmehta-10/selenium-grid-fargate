@@ -2,6 +2,8 @@
 
 A scalable yet disposable Selenium Grid for large-scale testing. Built using AWS ECS-Fargate.
 
+[UPDATED] Blog: https://meghamehta.tech/2020/07/13/run-selenium-tests-in-containers-using-aws-ecs-fargate/
+
 Presentation: https://speakerdeck.com/mmehta10/run-tests-at-scale-with-on-demand-selenium-grid-using-aws-fargate
 
 ----
